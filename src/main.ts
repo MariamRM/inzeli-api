@@ -12,7 +12,7 @@ async function bootstrap() {
 
   // ✅ CORS: يسمح فقط لدومين واجهتك (نتلايفاي)
   app.enableCors({
-    origin: ['https://unique-flan-0cc730.netlify.app'],
+    origin: true,
     methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type','Authorization'],
   });
