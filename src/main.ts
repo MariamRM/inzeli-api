@@ -2,23 +2,36 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ✅ أمان: يضيف هيدرات HTTP مهمة
+  app.use(helmet());
+
+  // ✅ CORS: يسمح فقط لدومين واجهتك (نتلايفاي)
   app.enableCors({
-    origin:  ['https://unique-flan-0cc730.netlify.app'],  // يسمح لأي origin أثناء التطوير
-    credentials: false,
+    origin: ['https://unique-flan-0cc730.netlify.app'],
     methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type','Authorization'],
-    preflightContinue: false, // Nest يرد 204 تلقائيًا
-    optionsSuccessStatus: 204,
   });
 
+  // ✅ كل مسارات الـ API تبدأ بـ /api
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-  await app.listen(process.env.PORT || 3000);
-  console.log(`API on http://localhost:${process.env.PORT || 3000}`);
+
+  // ✅ فالفيداشن للـ DTOs (يحذف قيم غريبة + يحوّل الأنواع)
+  app.useGlobalPipes(
+    new ValidationPipe({ 
+      whitelist: true, 
+      forbidNonWhitelisted: true, 
+      transform: true 
+    }),
+  );
+
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  console.log(`🚀 API running on http://localhost:${port}`);
 }
 bootstrap();
 //main.ts
