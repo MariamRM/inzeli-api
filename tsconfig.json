@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2017",
+    "lib": ["es2017", "dom"],
+    "strict": true,
+    "strictNullChecks": true,
+    "strictPropertyInitialization": false,
+    "noImplicitAny": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "moduleResolution": "node",
+    "resolveJsonModule": true
+  }
+}
+// tsconfig.json

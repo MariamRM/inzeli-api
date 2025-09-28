@@ -1,0 +1,159 @@
+// ---------- Prisma / PostgreSQL ----------
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ---------- Core Catalog ----------
+model Game {
+  id            String          @id // e.g., TREX / CHESS / BILLIARD
+  name          String
+  category      String
+  rooms         Room[]
+  matches       Match[]
+  TimelineEvent TimelineEvent[]
+}
+
+// ---------- Users ----------
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  displayName  String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  // Scores
+  permanentScore Int @default(0) // leaderboard points (win +1 / loss -1)
+  creditPoints   Int @default(5) // consumable credits (new users start with 5)
+
+  roomsHosted Room[]             @relation("RoomsHosted")
+  roomPlayers RoomPlayer[]
+  sponsors    UserSponsor[]
+  matchParts  MatchParticipant[]
+  timeline    TimelineEvent[]
+  RoomStake   RoomStake[]
+}
+
+// ---------- Rooms / Players / Stakes ----------
+model Room {
+  code       String @id
+  gameId     String
+  game       Game   @relation(fields: [gameId], references: [id])
+  hostUserId String
+  host       User   @relation("RoomsHosted", fields: [hostUserId], references: [id])
+
+  status    String   @default("waiting") // waiting | running | ended
+  createdAt DateTime @default(now())
+
+  // Room setup before start
+  targetWinPoints Int?
+  allowZeroCredit Boolean @default(true)
+
+  // Countdown
+  timerSec  Int?
+  startedAt DateTime?
+
+  players       RoomPlayer[]
+  matches       Match[]
+  stakes        RoomStake[]
+  TimelineEvent TimelineEvent[]
+}
+
+// NEW: team enum
+enum TeamSide {
+  A
+  B
+}
+
+model RoomPlayer {
+  roomCode String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  // Team meta
+  team     TeamSide? @default(A)  // keep nullable if you want, or make non-null
+  isLeader Boolean    @default(false)
+
+  room Room @relation(fields: [roomCode], references: [code], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomCode, userId])
+}
+
+model RoomStake {
+  roomCode   String
+  userId     String
+  amount     Int
+  reservedAt DateTime @default(now())
+
+  room Room @relation(fields: [roomCode], references: [code], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomCode, userId])
+}
+
+// ---------- Sponsors ----------
+model Sponsor {
+  code   String        @id
+  name   String
+  active Boolean       @default(true)
+  users  UserSponsor[]
+}
+
+model UserSponsor {
+  userId      String
+  sponsorCode String
+  activatedAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sponsor Sponsor @relation(fields: [sponsorCode], references: [code], onDelete: Cascade)
+
+  @@id([userId, sponsorCode])
+}
+
+// ---------- Matches ----------
+model Match {
+  id        String   @id @default(uuid())
+  roomCode  String?
+  gameId    String
+  createdAt DateTime @default(now())
+
+  room  Room?              @relation(fields: [roomCode], references: [code], onDelete: SetNull)
+  game  Game               @relation(fields: [gameId], references: [id])
+  parts MatchParticipant[]
+}
+
+model MatchParticipant {
+  matchId String
+  userId  String
+  outcome Outcome
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([matchId, userId])
+}
+
+enum Outcome {
+  WIN
+  LOSS
+}
+
+// ---------- Timeline ----------
+model TimelineEvent {
+  id        String   @id @default(uuid())
+  userId    String?
+  roomCode  String?
+  gameId    String?
+  kind      String // e.g., ROOM_CREATED, ROOM_JOINED, STAKE_SET, ROOM_STARTED, MATCH_FINISHED
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  room Room? @relation(fields: [roomCode], references: [code], onDelete: SetNull)
+  game Game? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+}
