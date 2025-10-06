@@ -7,11 +7,33 @@ import { AuthGuard } from '@nestjs/passport';
 export class MatchesController {
   constructor(private readonly matches: MatchesService) {}
 
+  /**
+   * POST /api/matches
+   * body:
+   * {
+   *   roomCode?: string,
+   *   gameId: string,
+   *   winners: string[],
+   *   losers: string[],
+   *   stakeUnits?: number // 1..3
+   * }
+   */
   @UseGuards(AuthGuard('jwt'))
   @Post()
-  async create(@Req() req: any, @Body() body: { roomCode?: string; gameId: string; winners: string[]; losers: string[] }) {
+  async create(
+    @Req() _req: any,
+    @Body()
+    body: {
+      roomCode?: string;
+      gameId: string;
+      winners: string[];
+      losers: string[];
+      stakeUnits?: number;
+    },
+  ) {
     try {
-      return ok('Match recorded', await this.matches.createMatch(body));
+      const data = await this.matches.createMatch(body);
+      return ok('Match recorded', data);
     } catch (e: any) {
       return err(e?.response?.message || e?.message || 'Match failed', e?.message);
     }

@@ -10,18 +10,30 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MatchesService = void 0;
+// src/matches/matches.service.ts
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma.service");
 let MatchesService = class MatchesService {
     constructor(prisma) {
         this.prisma = prisma;
-        this.WIN_CREDIT_REWARD = 0; // نعطل المكافأة العامة (نستخدم نظام نقاط اللعب)
     }
+    /**
+     * New rule:
+     * - stakeUnits N ∈ {1,2,3} (default 1)
+     * - winners: permanentScore += N
+     * - losers:  permanentScore -= N
+     * - no credits/escrow distribution here
+     * - if room has active countdown: forbid results until it ends
+     */
     async createMatch(input) {
-        const { roomCode, gameId, winners, losers } = input;
-        if (!winners.length && !losers.length)
+        var _a, _b, _c;
+        const { roomCode, gameId } = input;
+        const winners = (_a = input.winners) !== null && _a !== void 0 ? _a : [];
+        const losers = (_b = input.losers) !== null && _b !== void 0 ? _b : [];
+        if (winners.length === 0 && losers.length === 0) {
             throw new common_1.BadRequestException('EMPTY_MATCH');
-        // NEW: hard-lock until countdown ends
+        }
+        // lock results until countdown ends
         if (roomCode) {
             const room = await this.prisma.room.findUnique({ where: { code: roomCode } });
             if (!room)
@@ -33,60 +45,57 @@ let MatchesService = class MatchesService {
                 }
             }
         }
+        // validate users
         const ids = Array.from(new Set([...winners, ...losers]));
+        if (ids.length === 0)
+            throw new common_1.BadRequestException('NO_PARTICIPANTS');
         const users = await this.prisma.user.findMany({ where: { id: { in: ids } } });
         if (users.length !== ids.length)
             throw new common_1.BadRequestException('USER_NOT_FOUND');
+        // clamp stakeUnits → 1..3
+        const N = Math.max(1, Math.min(3, Number((_c = input.stakeUnits) !== null && _c !== void 0 ? _c : 1)));
+        // create match + parts
         const match = await this.prisma.match.create({
             data: {
-                roomCode, gameId,
+                roomCode,
+                gameId,
                 parts: {
                     create: [
-                        ...winners.map(uid => ({ userId: uid, outcome: 'WIN' })),
-                        ...losers.map(uid => ({ userId: uid, outcome: 'LOSS' })),
+                        ...winners.map((uid) => ({ userId: uid, outcome: 'WIN' })),
+                        ...losers.map((uid) => ({ userId: uid, outcome: 'LOSS' })),
                     ],
                 },
             },
             include: { parts: true },
         });
+        // apply +N / -N atomically and log timeline
         await this.prisma.$transaction(async (tx) => {
-            if (winners.length)
-                await tx.user.updateMany({ where: { id: { in: winners } }, data: { permanentScore: { increment: 1 } } });
-            if (losers.length)
-                await tx.user.updateMany({ where: { id: { in: losers } }, data: { permanentScore: { decrement: 1 } } });
-            const stakes = roomCode ? await tx.roomStake.findMany({ where: { roomCode } }) : [];
-            // Return winner stakes
-            const winnerStakes = stakes.filter(s => winners.includes(s.userId));
-            for (const ws of winnerStakes) {
-                if (ws.amount > 0) {
-                    await tx.user.update({ where: { id: ws.userId }, data: { creditPoints: { increment: ws.amount } } });
-                    await tx.roomStake.delete({ where: { roomCode_userId: { roomCode: ws.roomCode, userId: ws.userId } } });
-                }
+            if (winners.length) {
+                await tx.user.updateMany({
+                    where: { id: { in: winners } },
+                    data: { permanentScore: { increment: N } },
+                });
             }
-            // Distribute loser stakes
-            const loserStakes = stakes.filter(s => losers.includes(s.userId));
-            const totalLoserStake = loserStakes.reduce((sum, s) => sum + s.amount, 0);
-            if (totalLoserStake > 0 && winners.length > 0) {
-                if (winners.length === 1) {
-                    await tx.user.update({ where: { id: winners[0] }, data: { creditPoints: { increment: totalLoserStake } } });
-                }
-                else {
-                    const per = Math.floor(totalLoserStake / winners.length);
-                    const rem = totalLoserStake % winners.length;
-                    for (let i = 0; i < winners.length; i++) {
-                        const inc = per + (i === 0 ? rem : 0);
-                        if (inc > 0)
-                            await tx.user.update({ where: { id: winners[i] }, data: { creditPoints: { increment: inc } } });
-                    }
-                }
-                for (const ls of loserStakes) {
-                    await tx.roomStake.delete({ where: { roomCode_userId: { roomCode: ls.roomCode, userId: ls.userId } } });
-                }
+            if (losers.length) {
+                await tx.user.updateMany({
+                    where: { id: { in: losers } },
+                    data: { permanentScore: { decrement: N } },
+                });
             }
-            // General reward disabled
-            if (this.WIN_CREDIT_REWARD > 0) {
-                await tx.user.updateMany({ where: { id: { in: winners } }, data: { creditPoints: { increment: this.WIN_CREDIT_REWARD } } });
-            }
+            // optional timeline event
+            await tx.timelineEvent.create({
+                data: {
+                    kind: 'MATCH_FINISHED',
+                    roomCode: roomCode !== null && roomCode !== void 0 ? roomCode : null,
+                    gameId,
+                    meta: {
+                        winners,
+                        losers,
+                        stakeUnits: N,
+                        mode: 'per_round_units_no_escrow',
+                    },
+                },
+            });
         });
         return match;
     }
@@ -96,5 +105,5 @@ exports.MatchesService = MatchesService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], MatchesService);
-//matches.service.ts
+// src/matches/matches.service.ts
 //# sourceMappingURL=matches.service.js.map

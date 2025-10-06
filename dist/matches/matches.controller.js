@@ -21,10 +21,22 @@ let MatchesController = class MatchesController {
     constructor(matches) {
         this.matches = matches;
     }
-    async create(req, body) {
+    /**
+     * POST /api/matches
+     * body:
+     * {
+     *   roomCode?: string,
+     *   gameId: string,
+     *   winners: string[],
+     *   losers: string[],
+     *   stakeUnits?: number // 1..3
+     * }
+     */
+    async create(_req, body) {
         var _a;
         try {
-            return (0, api_1.ok)('Match recorded', await this.matches.createMatch(body));
+            const data = await this.matches.createMatch(body);
+            return (0, api_1.ok)('Match recorded', data);
         }
         catch (e) {
             return (0, api_1.err)(((_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.message) || (e === null || e === void 0 ? void 0 : e.message) || 'Match failed', e === null || e === void 0 ? void 0 : e.message);
