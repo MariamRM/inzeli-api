@@ -1,87 +1,139 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Prisma, Outcome } from '@prisma/client';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { Prisma, Outcome } from '@prisma/client';
 
 @Injectable()
 export class MatchesService {
   constructor(private prisma: PrismaService) {}
-  private WIN_CREDIT_REWARD = 0; // نعطل المكافأة العامة (نستخدم نظام نقاط اللعب)
 
-  async createMatch(input: { roomCode?: string; gameId: string; winners: string[]; losers: string[] }) {
-    const { roomCode, gameId, winners, losers } = input;
-    if (!winners.length && !losers.length) throw new BadRequestException('EMPTY_MATCH');
+  async createMatch(input: {
+    roomCode?: string;
+    sponsorCode?: string; // NEW
+    gameId: string;
+    winners: string[];
+    losers: string[];
+    stakeUnits?: number;
+  }) {
+    const { roomCode, sponsorCode, gameId } = input;
+    const winners = input.winners ?? [];
+    const losers = input.losers ?? [];
 
-    // NEW: hard-lock until countdown ends
+    if (winners.length === 0 && losers.length === 0) {
+      throw new BadRequestException('EMPTY_MATCH');
+    }
+
+    // Optional room lock
     if (roomCode) {
       const room = await this.prisma.room.findUnique({ where: { code: roomCode } });
       if (!room) throw new NotFoundException('ROOM_NOT_FOUND');
       if (room.startedAt && room.timerSec) {
         const endsAt = new Date(room.startedAt.getTime() + room.timerSec * 1000);
-        if (new Date() < endsAt) {
-          throw new ForbiddenException('RESULTS_LOCKED_UNTIL_TIMER_ENDS');
-        }
+        if (new Date() < endsAt) throw new ForbiddenException('RESULTS_LOCKED_UNTIL_TIMER_ENDS');
       }
     }
 
+    // Validate sponsor if used
+    if (sponsorCode) {
+      const s = await this.prisma.sponsor.findUnique({ where: { code: sponsorCode } });
+      if (!s || !s.active) throw new NotFoundException('SPONSOR_NOT_FOUND_OR_INACTIVE');
+      // تأكد أن اللعبة ضمن ألعاب الراعي (اختياري لكن منطقي)
+      const sg = await this.prisma.sponsorGame.findUnique({
+        where: { sponsorCode_gameId: { sponsorCode, gameId } },
+      });
+      if (!sg) throw new BadRequestException('GAME_NOT_SPONSORED');
+    }
+
+    // Validate users
     const ids = Array.from(new Set([...winners, ...losers]));
-    const users = await this.prisma.user.findMany({ where: { id: { in: ids } } });
+    if (ids.length === 0) throw new BadRequestException('NO_PARTICIPANTS');
+    const users = await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true } });
     if (users.length !== ids.length) throw new BadRequestException('USER_NOT_FOUND');
 
+    // Clamp stakeUnits
+    const N = Math.max(1, Math.min(3, Number(input.stakeUnits ?? 1)));
+
+    // Always create Match row (مع ربط الراعي لو موجود) — هذا لا يغيّر الترتيب العام
     const match = await this.prisma.match.create({
       data: {
-        roomCode, gameId,
+        roomCode,
+        gameId,
+        sponsorCode: sponsorCode ?? null, // keep for reporting
         parts: {
           create: [
-            ...winners.map(uid => ({ userId: uid, outcome: 'WIN' as Outcome })),
-            ...losers.map(uid  => ({ userId: uid, outcome: 'LOSS' as Outcome })),
+            ...winners.map((uid) => ({ userId: uid, outcome: 'WIN' as Outcome })),
+            ...losers.map((uid) => ({ userId: uid, outcome: 'LOSS' as Outcome })),
           ],
         },
       },
       include: { parts: true },
     });
 
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      if (winners.length) await tx.user.updateMany({ where: { id: { in: winners } }, data: { permanentScore: { increment: 1 } } });
-      if (losers.length)  await tx.user.updateMany({ where: { id: { in: losers } }, data: { permanentScore: { decrement: 1 } } });
-
-      const stakes = roomCode ? await tx.roomStake.findMany({ where: { roomCode } }) : [];
-
-      // Return winner stakes
-      const winnerStakes = stakes.filter(s => winners.includes(s.userId));
-      for (const ws of winnerStakes) {
-        if (ws.amount > 0) {
-          await tx.user.update({ where: { id: ws.userId }, data: { creditPoints: { increment: ws.amount } } });
-          await tx.roomStake.delete({ where: { roomCode_userId: { roomCode: ws.roomCode, userId: ws.userId } } });
+    if (!sponsorCode) {
+      // === مباراة عادية: إن كنت سابقاً تعدّل permanentScore، اتركها كما هي أو ألغها إن ما تحتاجها ===
+      await this.prisma.$transaction(async (tx) => {
+        if (winners.length) {
+          await tx.user.updateMany({
+            where: { id: { in: winners } },
+            data: { permanentScore: { increment: N } },
+          });
         }
+        if (losers.length) {
+          await tx.user.updateMany({
+            where: { id: { in: losers } },
+            data: { permanentScore: { decrement: N } },
+          });
+        }
+        await tx.timelineEvent.create({
+          data: {
+            kind: 'MATCH_FINISHED',
+            roomCode: roomCode ?? null,
+            gameId,
+            meta: { winners, losers, stakeUnits: N, mode: 'global' },
+          },
+        });
+      });
+      return match;
+    }
+
+    // === مباراة راعي: عدّل SponsorGameWallet فقط (لا تمسّ أي نقاط عامة)
+    await this.prisma.$transaction(async (tx) => {
+      // تأكد وجود محافظ الفائزين/الخاسرين (كل لعبة داخل الراعي تبدأ 5)
+      for (const uid of ids) {
+        await tx.sponsorGameWallet.upsert({
+          where: { userId_sponsorCode_gameId: { userId: uid, sponsorCode, gameId } },
+          update: {},
+          create: { userId: uid, sponsorCode, gameId, pearls: 5 },
+        });
       }
 
-      // Distribute loser stakes
-      const loserStakes = stakes.filter(s => losers.includes(s.userId));
-      const totalLoserStake = loserStakes.reduce((sum, s) => sum + s.amount, 0);
-
-      if (totalLoserStake > 0 && winners.length > 0) {
-        if (winners.length === 1) {
-          await tx.user.update({ where: { id: winners[0] }, data: { creditPoints: { increment: totalLoserStake } } });
-        } else {
-          const per = Math.floor(totalLoserStake / winners.length);
-          const rem = totalLoserStake % winners.length;
-          for (let i = 0; i < winners.length; i++) {
-            const inc = per + (i === 0 ? rem : 0);
-            if (inc > 0) await tx.user.update({ where: { id: winners[i] }, data: { creditPoints: { increment: inc } } });
-          }
-        }
-        for (const ls of loserStakes) {
-          await tx.roomStake.delete({ where: { roomCode_userId: { roomCode: ls.roomCode, userId: ls.userId } } });
-        }
+      if (winners.length) {
+        await tx.sponsorGameWallet.updateMany({
+          where: { sponsorCode, gameId, userId: { in: winners } },
+          data: { pearls: { increment: N } },
+        });
+      }
+      if (losers.length) {
+        await tx.sponsorGameWallet.updateMany({
+          where: { sponsorCode, gameId, userId: { in: losers } },
+          data: { pearls: { decrement: N } },
+        });
       }
 
-      // General reward disabled
-      if (this.WIN_CREDIT_REWARD > 0) {
-        await tx.user.updateMany({ where: { id: { in: winners } }, data: { creditPoints: { increment: this.WIN_CREDIT_REWARD } } });
-      }
+      await tx.timelineEvent.create({
+        data: {
+          kind: 'MATCH_FINISHED',
+          roomCode: roomCode ?? null,
+          gameId,
+          meta: { sponsorCode, winners, losers, stakeUnits: N, mode: 'sponsor_only' },
+        },
+      });
     });
 
     return match;
   }
 }
-//matches.service.ts
