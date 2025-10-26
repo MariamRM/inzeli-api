@@ -315,4 +315,5 @@ exports.RoomsService = RoomsService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], RoomsService);
+// src/rooms/rooms.service.ts
 //# sourceMappingURL=rooms.service.js.map

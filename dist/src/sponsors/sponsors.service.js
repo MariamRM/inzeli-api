@@ -10,20 +10,21 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SponsorsService = void 0;
+// src/sponsors/sponsors.service.ts
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma.service");
 let SponsorsService = class SponsorsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
-    // Active sponsors list
+    // ---------- موجودة عندك: لا تغيير ----------
     async listSponsors() {
         return this.prisma.sponsor.findMany({
             where: { active: true },
             orderBy: { name: 'asc' },
         });
     }
-    // Sponsor detail + games/prizes
+    // ---------- موجودة عندك: لا تغيير ----------
     async getSponsorWithGames(code) {
         const sponsor = await this.prisma.sponsor.findUnique({
             where: { code },
@@ -40,45 +41,35 @@ let SponsorsService = class SponsorsService {
         });
         return { sponsor, games };
     }
-    // Attach user to sponsor (creates UserSponsor + seed wallets if missing)
+    // ---------- موجودة عندك: لا تغيير ----------
     async joinSponsor(userId, code) {
         const s = await this.prisma.sponsor.findUnique({ where: { code } });
         if (!s || !s.active)
             throw new common_1.BadRequestException('SPONSOR_INACTIVE_OR_NOT_FOUND');
-        // Upsert UserSponsor
         await this.prisma.userSponsor.upsert({
             where: { userId_sponsorCode: { userId, sponsorCode: code } },
             update: {},
             create: { userId, sponsorCode: code },
         });
-        // Ensure a wallet (pearls) for every sponsor game (seed 5 if new)
         const sGames = await this.prisma.sponsorGame.findMany({ where: { sponsorCode: code } });
         for (const g of sGames) {
             await this.prisma.sponsorGameWallet.upsert({
-                where: {
-                    userId_sponsorCode_gameId: { userId, sponsorCode: code, gameId: g.gameId },
-                },
+                where: { userId_sponsorCode_gameId: { userId, sponsorCode: code, gameId: g.gameId } },
                 update: {},
-                create: {
-                    userId,
-                    sponsorCode: code,
-                    gameId: g.gameId,
-                    pearls: 5, // starting balance per board
-                },
+                create: { userId, sponsorCode: code, gameId: g.gameId, pearls: 5 },
             });
         }
         return { ok: true };
     }
-    // User wallets under a sponsor
+    // ---------- موجودة عندك: لا تغيير ----------
     async userWallets(userId, sponsorCode) {
-        const wallets = await this.prisma.sponsorGameWallet.findMany({
+        return this.prisma.sponsorGameWallet.findMany({
             where: { userId, sponsorCode },
             include: { game: true },
             orderBy: [{ gameId: 'asc' }],
         });
-        return wallets;
     }
-    // All user wallets (all sponsors)
+    // ---------- موجودة عندك: لا تغيير ----------
     async userAllWallets(userId) {
         return this.prisma.sponsorGameWallet.findMany({
             where: { userId },
@@ -86,10 +77,50 @@ let SponsorsService = class SponsorsService {
             orderBy: [{ sponsorCode: 'asc' }, { gameId: 'asc' }],
         });
     }
+    // ---------- جديدة: leaderboard لكل راعٍ + لعبة ----------
+    async leaderboard(sponsorCode, gameId) {
+        // يرجّع [{ userId, pearls, user: { displayName, email } }, ...] مرتّبة تنازلياً
+        return this.prisma.sponsorGameWallet.findMany({
+            where: { sponsorCode, gameId },
+            include: {
+                user: { select: { id: true, displayName: true, email: true } },
+            },
+            orderBy: [{ pearls: 'desc' }],
+            take: 100, // حدّ معقول، غيّري إذا تحتاجين
+        });
+    }
+    // ---------- جديدة: تأكيد/إنشاء محفظة لؤلؤ للّاعب ----------
+    async ensureWallet(userId, sponsorCode, gameId) {
+        // تأكّد الراعي موجود وActive
+        const s = await this.prisma.sponsor.findUnique({ where: { code: sponsorCode } });
+        if (!s || !s.active)
+            throw new common_1.NotFoundException('SPONSOR_NOT_FOUND');
+        // تأكّد اللعبة مدعومة من هذا الراعي
+        const sg = await this.prisma.sponsorGame.findUnique({
+            where: { sponsorCode_gameId: { sponsorCode, gameId } },
+        });
+        if (!sg)
+            throw new common_1.BadRequestException('GAME_NOT_SPONSORED');
+        // تأكّد المستخدم منضم للراعي
+        await this.prisma.userSponsor.upsert({
+            where: { userId_sponsorCode: { userId, sponsorCode } },
+            update: {},
+            create: { userId, sponsorCode },
+        });
+        // أنشئ/أكّد المحفظة (تبدأ بـ5 إذا جديدة)
+        const wallet = await this.prisma.sponsorGameWallet.upsert({
+            where: { userId_sponsorCode_gameId: { userId, sponsorCode, gameId } },
+            update: {}, // نترك الرصيد كما هو إذا موجودة
+            create: { userId, sponsorCode, gameId, pearls: 5 },
+        });
+        return wallet;
+    }
 };
 exports.SponsorsService = SponsorsService;
 exports.SponsorsService = SponsorsService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], SponsorsService);
+//sponsors.service.ts
+//src/sponsors/sponsors.service.ts
 //# sourceMappingURL=sponsors.service.js.map

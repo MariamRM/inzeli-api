@@ -21,4 +21,5 @@ exports.AppModule = AppModule = __decorate([
         imports: [rooms_module_1.RoomsModule, auth_module_1.AuthModule, matches_module_1.MatchesModule, users_module_1.UsersModule, sponsors_module_1.SponsorsModule],
     })
 ], AppModule);
+//src/app.module.ts
 //# sourceMappingURL=app.module.js.map

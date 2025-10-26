@@ -72,3 +72,4 @@ export class RoomsController {
   }
 }
 //rooms.controller.ts
+//src/rooms/rooms.controller.ts

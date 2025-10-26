@@ -55,4 +55,5 @@ async function main() {
     }
 }
 main().finally(async () => prisma.$disconnect());
+//prisma/seed-sponsor.ts
 //# sourceMappingURL=seed-sponsor.js.map

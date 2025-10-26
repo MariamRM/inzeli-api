@@ -15,7 +15,8 @@ export class MatchesController {
    *   gameId: string,
    *   winners: string[],
    *   losers: string[],
-   *   stakeUnits?: number // 1..3
+   *   stakeUnits?: number,
+   *   sponsorCode?: string
    * }
    */
   @UseGuards(AuthGuard('jwt'))
@@ -29,6 +30,7 @@ export class MatchesController {
       winners: string[];
       losers: string[];
       stakeUnits?: number;
+      sponsorCode?: string; // ✅ added
     },
   ) {
     try {
@@ -39,4 +41,5 @@ export class MatchesController {
     }
   }
 }
-// src/matches/matches.controller.ts
+//matches.controller.ts
+//src/matches/matches.controller.ts

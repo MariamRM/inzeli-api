@@ -325,3 +325,4 @@ export class RoomsService {
     return this.getByCode(code);
   }
 }
+// src/rooms/rooms.service.ts

@@ -59,3 +59,4 @@ async function main() {
 }
 
 main().finally(async () => prisma.$disconnect());
+//prisma/seed-sponsor.ts

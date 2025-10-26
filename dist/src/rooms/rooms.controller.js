@@ -159,4 +159,5 @@ exports.RoomsController = RoomsController = __decorate([
     __metadata("design:paramtypes", [rooms_service_1.RoomsService])
 ], RoomsController);
 //rooms.controller.ts
+//src/rooms/rooms.controller.ts
 //# sourceMappingURL=rooms.controller.js.map

@@ -31,4 +31,5 @@ exports.JwtStrategy = JwtStrategy = __decorate([
     __metadata("design:paramtypes", [])
 ], JwtStrategy);
 //jwt.strategy.ts
+//src/auth/jwt.strategy.ts
 //# sourceMappingURL=jwt.strategy.js.map

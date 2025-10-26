@@ -28,4 +28,5 @@ __decorate([
     __metadata("design:type", String)
 ], RegisterDto.prototype, "displayName", void 0);
 //register.dto.ts
+//src/auth/dto/register.dto.ts
 //# sourceMappingURL=register.dto.js.map

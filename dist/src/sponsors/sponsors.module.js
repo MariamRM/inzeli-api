@@ -21,4 +21,5 @@ exports.SponsorsModule = SponsorsModule = __decorate([
         exports: [sponsors_service_1.SponsorsService],
     })
 ], SponsorsModule);
+// src/sponsors/sponsors.module.ts
 //# sourceMappingURL=sponsors.module.js.map

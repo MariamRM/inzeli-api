@@ -5,3 +5,4 @@ export class RegisterDto {
   @IsNotEmpty() displayName!: string;
 }
 //register.dto.ts
+//src/auth/dto/register.dto.ts

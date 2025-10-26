@@ -16,3 +16,4 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 }
 //jwt.strategy.ts
+//src/auth/jwt.strategy.ts

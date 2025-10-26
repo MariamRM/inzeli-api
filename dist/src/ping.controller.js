@@ -40,4 +40,5 @@ exports.PingController = PingController = __decorate([
 ], PingController);
 // Note: You can test this controller by sending a GET request to the root path ("/")
 // and it will redirect to "/ping", which responds with a JSON object containing the current time.
+//src/ping.controller.ts
 //# sourceMappingURL=ping.controller.js.map

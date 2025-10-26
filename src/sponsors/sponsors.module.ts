@@ -9,3 +9,4 @@ import { PrismaService } from '../prisma.service';
   exports: [SponsorsService],
 })
 export class SponsorsModule {}
+// src/sponsors/sponsors.module.ts

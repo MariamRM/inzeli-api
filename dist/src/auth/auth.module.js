@@ -32,4 +32,5 @@ exports.AuthModule = AuthModule = __decorate([
     })
 ], AuthModule);
 //auth.module.ts
+//src/auth/auth.module.ts
 //# sourceMappingURL=auth.module.js.map

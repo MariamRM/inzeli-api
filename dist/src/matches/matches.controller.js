@@ -29,7 +29,8 @@ let MatchesController = class MatchesController {
      *   gameId: string,
      *   winners: string[],
      *   losers: string[],
-     *   stakeUnits?: number // 1..3
+     *   stakeUnits?: number,
+     *   sponsorCode?: string
      * }
      */
     async create(_req, body) {
@@ -57,5 +58,6 @@ exports.MatchesController = MatchesController = __decorate([
     (0, common_1.Controller)('matches'),
     __metadata("design:paramtypes", [matches_service_1.MatchesService])
 ], MatchesController);
-// src/matches/matches.controller.ts
+//matches.controller.ts
+//src/matches/matches.controller.ts
 //# sourceMappingURL=matches.controller.js.map

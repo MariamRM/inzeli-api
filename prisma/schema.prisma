@@ -20,6 +20,10 @@ model Game {
   // relations for sponsor extras (no breaking changes)
   SponsorGame       SponsorGame[]
   SponsorGameWallet SponsorGameWallet[]
+
+  // (اختياري) لو تسوين استعلامات حسب الاسم/التصنيف
+  @@index([name])
+  @@index([category])
 }
 
 // ---------- Users ----------
@@ -43,6 +47,10 @@ model User {
 
   // relations for sponsor extras
   SponsorGameWallet SponsorGameWallet[]
+
+  // للاستعلامات حسب الاسم/التاريخ مثلاً
+  @@index([displayName])
+  @@index([createdAt])
 }
 
 // ---------- Rooms / Players / Stakes ----------
@@ -68,9 +76,15 @@ model Room {
   matches       Match[]
   stakes        RoomStake[]
   TimelineEvent TimelineEvent[]
+
+  // 🔍 فهارس مفيدة لصفحات الغرف والتايمر
+  @@index([gameId])
+  @@index([hostUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([startedAt])
 }
 
-// NEW: team enum
 enum TeamSide {
   A
   B
@@ -82,13 +96,19 @@ model RoomPlayer {
   joinedAt DateTime @default(now())
 
   // Team meta
-  team     TeamSide? @default(A) // keep nullable if you want, or make non-null
+  team     TeamSide? @default(A)
   isLeader Boolean   @default(false)
 
   room Room @relation(fields: [roomCode], references: [code], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([roomCode, userId])
+
+  // 🔍 لاستعلامات الفريق والبحث عن لاعبي روم
+  @@index([roomCode])
+  @@index([userId])
+  @@index([roomCode, team])
+  @@index([roomCode, isLeader])
 }
 
 model RoomStake {
@@ -101,6 +121,9 @@ model RoomStake {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([roomCode, userId])
+
+  // 🔍 تقارير الرهانات (إن استعملتيها لاحقاً)
+  @@index([reservedAt])
 }
 
 // ---------- Sponsors ----------
@@ -114,6 +137,10 @@ model Sponsor {
   SponsorGame       SponsorGame[]
   SponsorGameWallet SponsorGameWallet[]
   matches           Match[]             @relation("SponsorMatches")
+
+  // 🔍 لإظهار القائمة مرتبة/مفلترة
+  @@index([active])
+  @@index([name])
 }
 
 model UserSponsor {
@@ -125,6 +152,10 @@ model UserSponsor {
   sponsor Sponsor @relation(fields: [sponsorCode], references: [code], onDelete: Cascade)
 
   @@id([userId, sponsorCode])
+
+  // 🔍 استعلامات حسب المستخدم أو تاريخ التفعيل
+  @@index([userId])
+  @@index([activatedAt])
 }
 
 // ---------- Matches ----------
@@ -141,6 +172,12 @@ model Match {
   room  Room?              @relation(fields: [roomCode], references: [code], onDelete: SetNull)
   game  Game               @relation(fields: [gameId], references: [id])
   parts MatchParticipant[]
+
+  // 🔍 أداء أفضل لخط الزمن والفلترة
+  @@index([gameId, createdAt])
+  @@index([sponsorCode, gameId, createdAt])
+  @@index([roomCode, createdAt])
+  @@index([createdAt])
 }
 
 model MatchParticipant {
@@ -152,6 +189,10 @@ model MatchParticipant {
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([matchId, userId])
+
+  // 🔍 إحصائيات المستخدم: WHERE userId = ? JOIN Match(gameId)
+  @@index([userId, matchId])
+  @@index([outcome])
 }
 
 enum Outcome {
@@ -172,11 +213,16 @@ model TimelineEvent {
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   room Room? @relation(fields: [roomCode], references: [code], onDelete: SetNull)
   game Game? @relation(fields: [gameId], references: [id], onDelete: SetNull)
+
+  // 🔍 عرض “شسالفة؟” بسرعة حسب المستخدم/الروم/اللعبة/النوع
+  @@index([userId, createdAt])
+  @@index([roomCode, createdAt])
+  @@index([gameId, createdAt])
+  @@index([kind, createdAt])
+  @@index([createdAt])
 }
 
 // ---------- Sponsor extras (games & per-sponsor wallets) ----------
-
-/// The set of games a sponsor supports, with an optional prize amount to display
 model SponsorGame {
   sponsorCode String
   gameId      String
@@ -186,9 +232,12 @@ model SponsorGame {
   game    Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@id([sponsorCode, gameId])
+
+  // 🔍 فهارس بسيطة للمراجعات
+  @@index([sponsorCode])
+  @@index([gameId])
 }
 
-/// A player's pearls *for a specific sponsor and game* (independent of global ranking)
 model SponsorGameWallet {
   userId      String
   sponsorCode String
@@ -201,4 +250,13 @@ model SponsorGameWallet {
   game    Game    @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@id([userId, sponsorCode, gameId])
+
+  // 🔍 لوحة المتصدرين (leaderboard) لكل Sponsor+Game
+  // WHERE sponsorCode=? AND gameId=? ORDER BY pearls DESC
+  // وجود الحقل pearls في نفس الفهرس يحسن الترتيب
+  @@index([sponsorCode, gameId, pearls])
+
+  // 🔍 استعلامات حسب المستخدم أو آخر تحديث
+  @@index([userId])
+  @@index([updatedAt])
 }

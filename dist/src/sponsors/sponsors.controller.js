@@ -13,6 +13,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SponsorsController = void 0;
+// src/sponsors/sponsors.controller.ts
 const common_1 = require("@nestjs/common");
 const sponsors_service_1 = require("./sponsors.service");
 const api_1 = require("../common/api");
@@ -58,7 +59,7 @@ let SponsorsController = class SponsorsController {
             return (0, api_1.err)((e === null || e === void 0 ? void 0 : e.message) || 'Failed', e === null || e === void 0 ? void 0 : e.message);
         }
     }
-    // Current user's wallets across all sponsors (optional)
+    // All user wallets (all sponsors)
     async allMyWallets(req) {
         try {
             const userId = req.user.userId;
@@ -113,4 +114,6 @@ exports.SponsorsController = SponsorsController = __decorate([
     (0, common_1.Controller)('sponsors'),
     __metadata("design:paramtypes", [sponsors_service_1.SponsorsService])
 ], SponsorsController);
+//sponsors.controller.ts
+//src/sponsors/sponsors.controller.ts
 //# sourceMappingURL=sponsors.controller.js.map

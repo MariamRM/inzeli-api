@@ -94,4 +94,5 @@ exports.AuthService = AuthService = __decorate([
     __metadata("design:paramtypes", [prisma_service_1.PrismaService, jwt_1.JwtService])
 ], AuthService);
 //auth.service.ts
+//src/auth/auth.service.ts
 //# sourceMappingURL=auth.service.js.map

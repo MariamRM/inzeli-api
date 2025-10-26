@@ -32,4 +32,5 @@ exports.AppController = AppController = __decorate([
     __metadata("design:paramtypes", [app_service_1.AppService])
 ], AppController);
 //app.controller.ts
+//src/app.controller.ts
 //# sourceMappingURL=app.controller.js.map

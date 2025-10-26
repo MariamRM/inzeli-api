@@ -23,4 +23,5 @@ __decorate([
     __metadata("design:type", String)
 ], LoginDto.prototype, "password", void 0);
 //login.dto.ts
+//src/auth/dto/login.dto.ts
 //# sourceMappingURL=login.dto.js.map

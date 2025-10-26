@@ -73,4 +73,5 @@ exports.UsersController = UsersController = __decorate([
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], UsersController);
 //users.controller.ts
+//src/users/users.controller.ts
 //# sourceMappingURL=users.controller.js.map

@@ -63,3 +63,4 @@ main().catch((e) => {
 }).finally(async () => {
   await prisma.$disconnect();
 });
+//seed-sponsor.js
