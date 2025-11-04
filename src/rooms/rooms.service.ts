@@ -1,3 +1,4 @@
+// src/rooms/rooms.service.ts
 import {
   Injectable,
   BadRequestException,
@@ -7,13 +8,17 @@ import {
 import { PrismaService } from '../prisma.service';
 import { Prisma, $Enums } from '@prisma/client';
 
-const ROOM_CREATE_COST = 5;
-const ROOM_JOIN_COST = 1;
+// ===== Costs (updated) =====
+// - Create room: no cost
+// - Join/participate: 1 credit per player, including the host (if they have credit)
+const ROOM_CREATE_COST = 0;
+const ROOM_JOIN_COST   = 1;
 
 @Injectable()
 export class RoomsService {
   constructor(private prisma: PrismaService) {}
 
+  // ---------- helpers ----------
   private newCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let s = '';
@@ -21,7 +26,6 @@ export class RoomsService {
     return s;
   }
 
-  // ---- LOCK HELPERS ----
   private endsAt(room: { startedAt: Date | null; timerSec: number | null }) {
     if (!room.startedAt || !room.timerSec) return null;
     return new Date(room.startedAt.getTime() + room.timerSec * 1000);
@@ -36,27 +40,41 @@ export class RoomsService {
     return Math.max(0, Math.ceil((end.getTime() - Date.now()) / 1000));
   }
 
-  // ---- CORE ----
+  private buildTeamQuorum(room: {
+    players: Array<{
+      team: $Enums.TeamSide | null;
+      user: { permanentScore: number | null } | null;
+    }>;
+  }) {
+    const calc = (team: 'A' | 'B') => {
+      const list = (room.players || []).filter((p) => p.team === team);
+      const required = list.length; // quorum requirement = number of players in that team
+      const available = list.reduce((sum, p) => sum + (p.user?.permanentScore ?? 0), 0);
+      const quorumMet = required > 0 && available >= required;
+      return { required, available, quorumMet };
+    };
+    return { A: calc('A'), B: calc('B') };
+  }
+
+  // ---------- core ----------
+  // UPDATED: host also pays 1 (if they have credit). We reserve this as a RoomStake.
   async createRoom(gameId: string, hostId: string) {
     const host = await this.prisma.user.findUnique({ where: { id: hostId } });
     if (!host) throw new Error('USER_NOT_FOUND');
-    if ((host.creditPoints ?? 0) < ROOM_CREATE_COST) throw new Error('NOT_ENOUGH_CREDITS');
 
+    // ensure game exists
     await this.prisma.game.upsert({
       where: { id: gameId },
       update: {},
       create: { id: gameId, name: gameId, category: 'عام' },
     });
 
+    // unique code
     let code = this.newCode();
     while (await this.prisma.room.findUnique({ where: { code } })) code = this.newCode();
 
     const room = await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: hostId },
-        data: { creditPoints: { decrement: ROOM_CREATE_COST } },
-      });
-
+      // 1) create room + add host as first player
       const r = await tx.room.create({
         data: {
           code,
@@ -67,32 +85,76 @@ export class RoomsService {
           players: { create: { userId: hostId } },
         },
         include: {
-          players: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+          players: {
+            include: {
+              user: {
+                select: { id: true, displayName: true, email: true, permanentScore: true },
+              },
+            },
+          },
           stakes: true,
         },
       });
 
+      // 2) charge host (1) if they have credit; reserve stake
+      let hostCharged = 0;
+      const freshHost = await tx.user.findUnique({
+        where: { id: hostId },
+        select: { creditPoints: true },
+      });
+      if ((freshHost?.creditPoints ?? 0) > 0) {
+        hostCharged = ROOM_JOIN_COST;
+
+        // remove previous stake if any (safety)
+        const old = await tx.roomStake.findUnique({
+          where: { roomCode_userId: { roomCode: code, userId: hostId } },
+        });
+        if (old) {
+          await tx.roomStake.delete({
+            where: { roomCode_userId: { roomCode: code, userId: hostId } },
+          });
+        }
+
+        // decrement credit and create stake
+        await tx.user.update({
+          where: { id: hostId },
+          data: { creditPoints: { decrement: ROOM_JOIN_COST } },
+        });
+        await tx.roomStake.create({
+          data: { roomCode: code, userId: hostId, amount: ROOM_JOIN_COST },
+        });
+      }
+
+      // 3) timeline
       await tx.timelineEvent.create({
         data: {
           kind: 'ROOM_CREATED',
           roomCode: code,
           gameId,
           userId: hostId,
-          meta: { cost: ROOM_CREATE_COST },
+          meta: { cost: ROOM_CREATE_COST, hostCharged },
         },
       });
 
       return r;
     });
 
-    return room;
+    const locked = this.isLocked(room);
+    const remainingSec = this.remaining(room);
+    const teamQuorum = this.buildTeamQuorum(room as any);
+
+    return { ...room, locked, remainingSec, teamQuorum };
   }
 
   async getByCode(code: string) {
     const room = await this.prisma.room.findUnique({
       where: { code },
       include: {
-        players: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+        players: {
+          include: {
+            user: { select: { id: true, displayName: true, email: true, permanentScore: true } }, // pearls displayed from permanentScore
+          },
+        },
         stakes: true,
       },
     });
@@ -100,12 +162,13 @@ export class RoomsService {
 
     const locked = this.isLocked(room);
     const remainingSec = this.remaining(room);
-    return { ...room, locked, remainingSec };
+    const teamQuorum = this.buildTeamQuorum(room as any);
+
+    return { ...room, locked, remainingSec, teamQuorum };
   }
 
+  // UPDATED: join now rechecks credit INSIDE the transaction, reserves stake=1 if possible
   async join(code: string, userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error('USER_NOT_FOUND');
     const room = await this.prisma.room.findUnique({ where: { code } });
     if (!room) throw new Error('ROOM_NOT_FOUND');
     if (room.status !== 'waiting' && room.status !== 'running') {
@@ -117,16 +180,36 @@ export class RoomsService {
         where: { roomCode_userId: { roomCode: code, userId } },
       });
       if (!exists) {
-        const charge = (user.creditPoints ?? 0) > 0 ? ROOM_JOIN_COST : 0;
-        if (charge > 0) {
+        const u = await tx.user.findUnique({
+          where: { id: userId },
+          select: { creditPoints: true },
+        });
+        const canPay = (u?.creditPoints ?? 0) > 0;
+
+        if (canPay) {
+          // remove previous stake if any (safety)
+          const old = await tx.roomStake.findUnique({
+            where: { roomCode_userId: { roomCode: code, userId } },
+          });
+          if (old) {
+            await tx.roomStake.delete({
+              where: { roomCode_userId: { roomCode: code, userId } },
+            });
+          }
+
+          // decrement credit and create stake
           await tx.user.update({
             where: { id: userId },
-            data: { creditPoints: { decrement: charge } },
+            data: { creditPoints: { decrement: ROOM_JOIN_COST } },
+          });
+          await tx.roomStake.create({
+            data: { roomCode: code, userId, amount: ROOM_JOIN_COST },
           });
         }
+
         await tx.roomPlayer.create({ data: { roomCode: code, userId } });
         await tx.timelineEvent.create({
-          data: { kind: 'ROOM_JOINED', roomCode: code, userId, meta: { charged: charge } },
+          data: { kind: 'ROOM_JOINED', roomCode: code, userId, meta: { charged: canPay ? ROOM_JOIN_COST : 0 } },
         });
       }
     });
@@ -139,7 +222,17 @@ export class RoomsService {
     hostId: string,
     params: { targetWinPoints?: number; allowZeroCredit?: boolean; timerSec?: number },
   ) {
-    const room = await this.prisma.room.findUnique({ where: { code } });
+    const room = await this.prisma.room.findUnique({
+      where: { code },
+      include: {
+        players: {
+          include: {
+            user: { select: { id: true, displayName: true, email: true, permanentScore: true } },
+          },
+        },
+        stakes: true,
+      },
+    });
     if (!room) throw new Error('ROOM_NOT_FOUND');
     if (room.hostUserId !== hostId) throw new BadRequestException('ONLY_HOST_CAN_START');
     if (room.status !== 'waiting') throw new BadRequestException('ALREADY_STARTED');
@@ -158,7 +251,11 @@ export class RoomsService {
         startedAt: new Date(),
       },
       include: {
-        players: { include: { user: { select: { id: true, displayName: true, email: true } } } },
+        players: {
+          include: {
+            user: { select: { id: true, displayName: true, email: true, permanentScore: true } },
+          },
+        },
         stakes: true,
       },
     });
@@ -172,13 +269,14 @@ export class RoomsService {
       },
     });
 
-    return {
-      ...updated,
-      locked: this.isLocked(updated),
-      remainingSec: this.remaining(updated),
-    };
+    const locked = this.isLocked(updated);
+    const remainingSec = this.remaining(updated);
+    const teamQuorum = this.buildTeamQuorum(updated as any);
+
+    return { ...updated, locked, remainingSec, teamQuorum };
   }
 
+  // keep legacy staking API (for manual adjustments before start)
   async setStake(code: string, userId: string, amount: number) {
     if (amount < 0) throw new BadRequestException('INVALID_STAKE');
 
@@ -190,6 +288,7 @@ export class RoomsService {
     if ((user.creditPoints ?? 0) < amount) throw new BadRequestException('NOT_ENOUGH_CREDITS');
 
     await this.prisma.$transaction(async (tx) => {
+      // refund previous stake (if any)
       const old = await tx.roomStake.findUnique({
         where: { roomCode_userId: { roomCode: code, userId } },
       });
@@ -202,6 +301,7 @@ export class RoomsService {
           where: { roomCode_userId: { roomCode: code, userId } },
         });
       }
+      // reserve new stake
       await tx.user.update({
         where: { id: userId },
         data: { creditPoints: { decrement: amount } },
@@ -215,7 +315,7 @@ export class RoomsService {
     return this.getByCode(code);
   }
 
-  // ---- TEAMS / LEADERS ----
+  // ---- teams / leaders ----
   async setPlayerTeam(code: string, hostId: string, playerUserId: string, team: 'A' | 'B') {
     const room = await this.prisma.room.findUnique({ where: { code } });
     if (!room) throw new NotFoundException('ROOM_NOT_FOUND');
@@ -271,3 +371,5 @@ export class RoomsService {
     return this.getByCode(code);
   }
 }
+
+
